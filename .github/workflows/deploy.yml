@@ -1,11 +1,36 @@
-name: Deploy
+name: Build and Deploy
 
 on:
   push:
     branches: [main]
 
 jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/kemp9433-pixel/test-actions:latest
+            ghcr.io/kemp9433-pixel/test-actions:${{ github.sha }}
+
   deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -15,11 +40,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            if [ ! -d /opt/bot ]; then
-              git clone https://github.com/kemp9433-pixel/Test-actions.git /opt/bot
-            fi
-            cd /opt/bot
-            git pull origin main
-            docker build -t time-api .
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/kemp9433-pixel/test-actions:latest
             docker rm -f time-api || true
-            docker run -d --name time-api --restart unless-stopped -p 8090:8000 time-api
+            docker run -d --name time-api --restart unless-stopped -p 8090:8000 ghcr.io/kemp9433-pixel/test-actions:latest
